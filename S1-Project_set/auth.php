@@ -97,6 +97,9 @@ function require_role(string ...$roles): void
 
 function log_in_user(array $user): void
 {
+    session_regenerate_id(true);
+    unset($_SESSION['csrf_token']);
+
     // Only the fields the templates need are kept in the session;
     // the password hash never leaves the users table.
     $_SESSION['user'] = [
@@ -109,6 +112,12 @@ function log_in_user(array $user): void
 function log_out_user(): void
 {
     $_SESSION = [];
+
+    if (ini_get('session.use_cookies')) {
+        $cookieParams = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000, $cookieParams['path'], $cookieParams['domain'], $cookieParams['secure'], $cookieParams['httponly']);
+    }
+
     session_destroy();
 }
 

@@ -4,16 +4,21 @@ require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/auth.php';
 require_role('admin');
 
+$formError = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
+    $formError = 'Your session expired. Please reload the page and try again.';
+  } else {
     if (isset($_POST['delete_id']) && (int) $_POST['delete_id'] !== current_user()['id']) {
-        delete_user((int) $_POST['delete_id']);
-    } 
+      delete_user((int) $_POST['delete_id']);
+    }
     elseif (isset($_POST['user_id'], $_POST['role_id'])) {
-        update_user_role((int) $_POST['user_id'], (int) $_POST['role_id']);
+      update_user_role((int) $_POST['user_id'], (int) $_POST['role_id']);
     }
 
     header('Location: ' . app_url('users.php'));
     exit;
+    }
 }
 
 $pageTitle = 'Manage users — PhonePulse';
@@ -22,6 +27,7 @@ $roles = get_roles();
 ?>
 
 <h1>Users &amp; roles</h1>
+<?php if ($formError !== ''): ?><p class="error"><?= e($formError) ?></p><?php endif; ?>
 <p class="sub">Assign each account a role. Admins can manage everything; salemen manage the catalogue; viewers browse and favourite.</p>
 
 <table>
@@ -34,6 +40,7 @@ $roles = get_roles();
 
       <td>
         <form method="post" style="display:flex; gap:8px; align-items:center;">
+          <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
           <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
           <select name="role_id" onchange="this.form.submit()">
             <?php foreach ($roles as $role): ?>
@@ -47,6 +54,7 @@ $roles = get_roles();
       <td class="table-actions">
         <?php if ($u['username'] !== current_user()['username']): ?>
         <form method="post" style="display:inline">
+          <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
           <input type="hidden" name="delete_id" value="<?= $u['id'] ?>">
           <a href="#" class="danger" onclick="if(confirm('Remove this user?')){this.closest('form').submit();} return false;">Remove</a>
         </form>

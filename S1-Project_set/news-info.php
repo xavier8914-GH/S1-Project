@@ -4,22 +4,27 @@ require_once __DIR__ . '/auth.php';
 require_role('admin', 'salesman');
 
 $userId = current_user()['id'];
+$formError = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
+    $formError = 'Your session expired. Please reload the page and try again.';
+  } else {
     if (isset($_POST['delete_id'])) {
-        delete_news((int) $_POST['delete_id']);
-    } 
+      delete_news((int) $_POST['delete_id']);
+    }
     else {
-        save_news([
-            'source'       => trim($_POST['source']),
-            'published_on' => $_POST['published_on'] !== '' ? $_POST['published_on'] : null,
-            'content'      => trim($_POST['content']),
-            'phone_id'     => $_POST['phone_id'] !== '' ? (int) $_POST['phone_id'] : null,
-        ], $_POST['id'] ? (int) $_POST['id'] : null, $userId);
+      save_news([
+        'source'       => trim($_POST['source']),
+        'published_on' => $_POST['published_on'] !== '' ? $_POST['published_on'] : null,
+        'content'      => trim($_POST['content']),
+        'phone_id'     => $_POST['phone_id'] !== '' ? (int) $_POST['phone_id'] : null,
+      ], $_POST['id'] ? (int) $_POST['id'] : null, $userId);
     }
 
     header('Location: ' . app_url('news-info.php'));
     exit;
+    }
 }
 
 $pageTitle = 'Manage news — PhonePulse';
@@ -27,9 +32,11 @@ require __DIR__ . '/header.php';
 ?>
 
 <h1>Manage news</h1>
+<?php if ($formError !== ''): ?><p class="error"><?= e($formError) ?></p><?php endif; ?>
 <form class="panel" method="post">
 
   <h2>Add a news item</h2>
+  <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
   <label for="source">Source</label>
   <input id="source" name="source" required placeholder="e.g. Apple Newsroom">
 
@@ -61,6 +68,7 @@ require __DIR__ . '/header.php';
       <td><?= e(mb_strimwidth($item['content'], 0, 60, '…')) ?></td>
       <td class="table-actions">
         <form method="post" style="display:inline">
+          <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
           <input type="hidden" name="delete_id" value="<?= $item['id'] ?>">
           <a href="#" class="danger" onclick="if(confirm('Delete this news item?')){this.closest('form').submit();} return false;">Delete</a>
         </form>

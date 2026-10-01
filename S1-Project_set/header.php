@@ -42,7 +42,10 @@ $user = current_user();
     <div class="auth">
       <?php if ($user): ?>
         <span class="user-chip"><?= e($user['username']) ?> · <?= e($user['role']) ?></span>
-        <a class="auth-btn" href="<?= e(app_url('logout.php')) ?>">Log out</a>
+        <form method="post" action="<?= e(app_url('logout.php')) ?>">
+          <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+          <button class="auth-btn" type="submit">Log out</button>
+        </form>
       <?php else: ?>
         <a class="auth-btn" href="<?= e(app_url('login.php')) ?>">Log in</a>
         <a class="auth-btn primary" href="<?= e(app_url('signup.php')) ?>">Sign up</a>

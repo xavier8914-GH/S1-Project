@@ -14,7 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = is_string($usernameInput) ? trim($usernameInput) : '';
     $password = is_string($passwordInput) ? $passwordInput : '';
 
-    if (($_POST['agree_terms'] ?? '') !== '1') {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
+        $error = 'Your session expired. Please reload the page and try again.';
+    } elseif (($_POST['agree_terms'] ?? '') !== '1') {
         $error = 'Please read and accept the Terms of Use and Privacy Policy to create an account.';
     } elseif ($username === '' || $password === '') {
         $error = 'Enter a username and password.';
@@ -40,6 +42,7 @@ require __DIR__ . '/header.php';
   <h2>Sign up</h2>
 
   <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
+    <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
   <label for="username">Username</label>
   <input id="username" name="username" required>
 
