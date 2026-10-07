@@ -6,8 +6,8 @@ function e(?string $value): string
 {
     return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
 }
-
-// === Phone functions ===
+ 
+// === Phones ===
 function get_phones(string $search = ''): array
 {
     $sql = 'SELECT phones.*, brands.name AS brand_name, brands.official_url
@@ -37,15 +37,14 @@ function get_phone(int $id): ?array
          WHERE phones.id = :id'
     );
     $stmt->execute(['id' => $id]);
-    $phone = $stmt->fetch();
-    return $phone ?: null;
+    return $stmt->fetch() ?: null;
 }
  
 function get_brands(): array
 {
     return get_db()->query('SELECT * FROM brands ORDER BY name')->fetchAll();
 }
-
+ 
 function add_brand(string $name, ?string $officialUrl): void
 {
     get_db()->prepare(
@@ -55,45 +54,39 @@ function add_brand(string $name, ?string $officialUrl): void
         'official_url' => $officialUrl,
     ]);
 }
-
-function get_gsmarena_url(array $phone): string
-{
-    $detailUrl = $phone['detail_url'] ?? '';
-    if (is_string($detailUrl)) {
-        $url = parse_url($detailUrl);
-        if (is_array($url)
-            && ($url['scheme'] ?? '') === 'https'
-            && in_array(strtolower($url['host'] ?? ''), ['gsmarena.com', 'www.gsmarena.com'], true)
-            && preg_match('/-[0-9]+\.php$/', $url['path'] ?? '') === 1) {
-            return $detailUrl;
-        }
-    }
-
-    $brand = trim((string) ($phone['brand_name'] ?? ''));
-    $model = trim((string) ($phone['name'] ?? ''));
-    if ($brand !== '' && strncasecmp($model, $brand, strlen($brand)) === 0) {
-        $model = trim(substr($model, strlen($brand)));
-    }
-
-    return 'https://www.gsmarena.com/results.php3?sQuickSearch=' . rawurlencode(trim($brand . ' ' . $model));
-}
-
+ 
 function has_gsmarena_detail_url(array $phone): bool
 {
     $detailUrl = $phone['detail_url'] ?? '';
     if (!is_string($detailUrl)) {
         return false;
     }
-
+ 
     $url = parse_url($detailUrl);
     return is_array($url)
         && ($url['scheme'] ?? '') === 'https'
         && in_array(strtolower($url['host'] ?? ''), ['gsmarena.com', 'www.gsmarena.com'], true)
         && preg_match('/-[0-9]+\.php$/', $url['path'] ?? '') === 1;
 }
-
+ 
+function get_gsmarena_url(array $phone): string
+{
+    if (has_gsmarena_detail_url($phone)) {
+        return $phone['detail_url'];
+    }
+ 
+    $brand = trim((string) ($phone['brand_name'] ?? ''));
+    $model = trim((string) ($phone['name'] ?? ''));
+    if ($brand !== '' && strncasecmp($model, $brand, strlen($brand)) === 0) {
+        $model = trim(substr($model, strlen($brand)));
+    }
+ 
+    return 'https://www.gsmarena.com/results.php3?sQuickSearch=' . rawurlencode(trim($brand . ' ' . $model));
+}
+ 
 /**
  * $data expects: name, brand_id, spec_highlight, price_myr, status, detail_url
+ * Optional: image_path (on edit, leave empty to keep the current image)
  */
 function save_phone(array $data, ?int $id, int $createdBy): void
 {
@@ -111,11 +104,10 @@ function save_phone(array $data, ?int $id, int $createdBy): void
         $stmt = get_db()->prepare(
             'UPDATE phones SET name = :name, brand_id = :brand_id, spec_highlight = :spec,
              price_myr = :price, status = :status, detail_url = :detail_url,
-             image_path = :image_path WHERE id = :id'
+             image_path = COALESCE(:image_path, image_path) WHERE id = :id'
         );
         $params['id'] = $id;
-    }
-    else {
+    } else {
         $stmt = get_db()->prepare(
             'INSERT INTO phones (name, brand_id, spec_highlight, price_myr, status, detail_url, image_path, created_by)
              VALUES (:name, :brand_id, :spec, :price, :status, :detail_url, :image_path, :created_by)'
@@ -129,7 +121,7 @@ function delete_phone(int $id): void
 {
     get_db()->prepare('DELETE FROM phones WHERE id = :id')->execute(['id' => $id]);
 }
-
+ 
 // === Favourites ===
 function get_favorite_ids(int $userId): array
 {
@@ -140,8 +132,7 @@ function get_favorite_ids(int $userId): array
  
 function toggle_favorite(int $userId, int $phoneId): void
 {
-    // Try delete first; if nothing was deleted, it wasn't favorited, so insert.
-    // Requires a UNIQUE(user_id, phone_id) constraint to be fully race-safe.
+    // Delete first; if nothing was deleted, it wasn't a favourite yet, so insert.
     $stmt = get_db()->prepare('DELETE FROM favorites WHERE user_id = :u AND phone_id = :p');
     $stmt->execute(['u' => $userId, 'p' => $phoneId]);
  
@@ -150,83 +141,87 @@ function toggle_favorite(int $userId, int $phoneId): void
             get_db()->prepare('INSERT INTO favorites (user_id, phone_id) VALUES (:u, :p)')
                 ->execute(['u' => $userId, 'p' => $phoneId]);
         } catch (\PDOException $e) {
-            // Ignore duplicate-insert race if unique constraint exists; otherwise rethrow.
-            if (!str_contains($e->getMessage(), 'Duplicate') && !str_contains($e->getMessage(), 'UNIQUE')) {
+            // 1062 = duplicate entry (double click). Anything else is a real error.
+            if (($e->errorInfo[1] ?? null) !== 1062) {
                 throw $e;
             }
         }
     }
 }
-
+ 
 // === Comments ===
-function get_phone_comments(array $phoneIds): array
+ 
+// Builds the "IN (...)" placeholders for a list of phone IDs.
+// Returns [sqlPlaceholders, params], or null if there are no valid IDs.
+function build_phone_id_filter(array $phoneIds): ?array
 {
     $phoneIds = array_values(array_unique(array_filter(
         array_map('intval', $phoneIds),
         static fn (int $id): bool => $id > 0
     )));
     if ($phoneIds === []) {
-        return [];
+        return null;
     }
-
+ 
     $placeholders = [];
     $params = [];
     foreach ($phoneIds as $index => $phoneId) {
-        $parameter = 'phone_' . $index;
-        $placeholders[] = ':' . $parameter;
-        $params[$parameter] = $phoneId;
+        $name = 'phone_' . $index;
+        $placeholders[] = ':' . $name;
+        $params[$name] = $phoneId;
     }
-
+ 
+    return [implode(', ', $placeholders), $params];
+}
+ 
+function get_phone_comments(array $phoneIds): array
+{
+    $filter = build_phone_id_filter($phoneIds);
+    if ($filter === null) {
+        return [];
+    }
+    [$in, $params] = $filter;
+ 
     $stmt = get_db()->prepare(
-        'SELECT phone_id, author_name, body, created_at
+        "SELECT phone_id, author_name, body, created_at
          FROM phone_comments
-         WHERE phone_id IN (' . implode(', ', $placeholders) . ')
-         ORDER BY created_at DESC'
+         WHERE phone_id IN ($in)
+         ORDER BY created_at DESC"
     );
     $stmt->execute($params);
-
+ 
     $commentsByPhone = [];
     foreach ($stmt->fetchAll() as $comment) {
         $commentsByPhone[$comment['phone_id']][] = $comment;
     }
-
+ 
     return $commentsByPhone;
 }
-
+ 
 function get_phone_comment_counts(array $phoneIds): array
 {
-    $phoneIds = array_values(array_unique(array_filter(
-        array_map('intval', $phoneIds),
-        static fn (int $id): bool => $id > 0
-    )));
-    if ($phoneIds === []) {
+    $filter = build_phone_id_filter($phoneIds);
+    if ($filter === null) {
         return [];
     }
-
-    $placeholders = [];
-    $params = [];
-    foreach ($phoneIds as $index => $phoneId) {
-        $parameter = 'phone_' . $index;
-        $placeholders[] = ':' . $parameter;
-        $params[$parameter] = $phoneId;
-    }
-
+    [$in, $params] = $filter;
+ 
     $stmt = get_db()->prepare(
-        'SELECT phone_id, COUNT(*) AS comment_count
+        "SELECT phone_id, COUNT(*) AS comment_count
          FROM phone_comments
-         WHERE phone_id IN (' . implode(', ', $placeholders) . ')
-         GROUP BY phone_id'
+         WHERE phone_id IN ($in)
+         GROUP BY phone_id"
     );
     $stmt->execute($params);
-
+ 
     $counts = [];
     foreach ($stmt->fetchAll() as $row) {
         $counts[$row['phone_id']] = (int) $row['comment_count'];
     }
-
+ 
     return $counts;
 }
-
+ 
 function add_phone_comment(int $phoneId, string $authorName, string $body): void
 {
     get_db()->prepare(
@@ -238,9 +233,8 @@ function add_phone_comment(int $phoneId, string $authorName, string $body): void
         'body' => $body,
     ]);
 }
-
-// ---- News ---------------------------------------------------------------
  
+// === News ===
 function get_news(): array
 {
     return get_db()->query(
@@ -265,8 +259,7 @@ function save_news(array $data, ?int $id, int $createdBy): void
              content = :content, phone_id = :phone_id WHERE id = :id'
         );
         $params['id'] = $id;
-    }
-    else {
+    } else {
         $stmt = get_db()->prepare(
             'INSERT INTO news (source, published_on, content, phone_id, created_by)
              VALUES (:source, :published_on, :content, :phone_id, :created_by)'
@@ -281,8 +274,7 @@ function delete_news(int $id): void
     get_db()->prepare('DELETE FROM news WHERE id = :id')->execute(['id' => $id]);
 }
  
-//Users / roles
- 
+// === Users / roles ===
 function find_user_by_username(string $username): ?array
 {
     $stmt = get_db()->prepare(
@@ -291,8 +283,7 @@ function find_user_by_username(string $username): ?array
          WHERE username = :username'
     );
     $stmt->execute(['username' => $username]);
-    $user = $stmt->fetch();
-    return $user ?: null;
+    return $stmt->fetch() ?: null;
 }
  
 function count_users(): int
@@ -307,13 +298,12 @@ function create_user(string $username, string $password, string $roleName): void
     $role = $roleStmt->fetch();
  
     if (!$role) {
-        throw new InvalidArgumentException("Unknown role: $roleName");
+        throw new \RuntimeException('Role not found: ' . $roleName);
     }
  
-    $stmt = get_db()->prepare(
+    get_db()->prepare(
         'INSERT INTO users (username, password_hash, role_id) VALUES (:username, :hash, :role_id)'
-    );
-    $stmt->execute([
+    )->execute([
         'username' => $username,
         'hash'     => password_hash($password, PASSWORD_DEFAULT),
         'role_id'  => $role['id'],
@@ -344,20 +334,20 @@ function delete_user(int $userId): void
     get_db()->prepare('DELETE FROM users WHERE id = :id')->execute(['id' => $userId]);
 }
  
-//Dashboard stats
- 
+// === Dashboard stats ===
 function get_stats(): array
 {
     $db = get_db();
     return [
-        'phones'      => (int) $db->query('SELECT COUNT(*) AS n FROM phones')->fetch()['n'],
-        'unreleased'  => (int) $db->query("SELECT COUNT(*) AS n FROM phones WHERE status = 'unreleased'")->fetch()['n'],
-        'users'       => (int) $db->query('SELECT COUNT(*) AS n FROM users')->fetch()['n'],
-        'favorites'   => (int) $db->query('SELECT COUNT(*) AS n FROM favorites')->fetch()['n'],
-        'news'        => (int) $db->query('SELECT COUNT(*) AS n FROM news')->fetch()['n'],
+        'phones'     => (int) $db->query('SELECT COUNT(*) AS n FROM phones')->fetch()['n'],
+        'unreleased' => (int) $db->query("SELECT COUNT(*) AS n FROM phones WHERE status = 'unreleased'")->fetch()['n'],
+        'users'      => (int) $db->query('SELECT COUNT(*) AS n FROM users')->fetch()['n'],
+        'favorites'  => (int) $db->query('SELECT COUNT(*) AS n FROM favorites')->fetch()['n'],
+        'news'       => (int) $db->query('SELECT COUNT(*) AS n FROM news')->fetch()['n'],
     ];
 }
-
+ 
+// === Contact ===
 function add_contact_message(string $name, string $email, string $message): void
 {
     get_db()->prepare(
@@ -369,7 +359,7 @@ function add_contact_message(string $name, string $email, string $message): void
         'message' => $message,
     ]);
 }
-
+ 
 function get_contact_messages(): array
 {
     return get_db()->query(
