@@ -135,4 +135,5 @@ SELECT b.id, 'Samsung Fold 8', 'Foldable flagship with premium multitasking', 79
 FROM `brands` b WHERE b.name = 'Samsung'
 ON DUPLICATE KEY UPDATE `spec_highlight` = VALUES(`spec_highlight`);
 
+
 -- === End ===

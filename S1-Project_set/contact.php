@@ -52,3 +52,4 @@ require __DIR__ . '/header.php';
 </section>
 
 <?php require __DIR__ . '/footer.php'; ?>
+

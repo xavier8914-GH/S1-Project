@@ -48,3 +48,4 @@ JOIN brands ON brands.id = phones.brand_id
 SET phones.detail_url = ''
 WHERE brands.name = 'Honor'
   AND phones.name IN ('Honor Magic 9 Pro', 'Honor Magic 9 Pro Max');
+

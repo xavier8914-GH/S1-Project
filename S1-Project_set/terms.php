@@ -42,3 +42,4 @@ require __DIR__ . '/header.php';
 </article>
 
 <?php require __DIR__ . '/footer.php'; ?>
+

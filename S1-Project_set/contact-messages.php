@@ -29,3 +29,4 @@ require __DIR__ . '/header.php';
 <?php endif; ?>
 
 <?php require __DIR__ . '/footer.php'; ?>
+

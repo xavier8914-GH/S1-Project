@@ -23,3 +23,4 @@ add_phone_comment((int) $phoneId, $authorName, $body);
 $query = http_build_query(['phone' => (int) $phoneId, 'comment_sent' => 1]);
 header('Location: ' . app_url('phone-chat.php') . '?' . $query);
 exit;
+
