@@ -14,7 +14,7 @@ INNER JOIN `phones` p2
 ALTER TABLE `phones`
   ADD UNIQUE KEY `uq_phones_brand_name` (`brand_id`, `name`);
 
--- === Add missing brands ===
+-- === Add phone brands ===
 INSERT INTO `brands` (`name`, `official_url`)
 VALUES
 ('Huawei', 'https://consumer.huawei.com/my/'),
